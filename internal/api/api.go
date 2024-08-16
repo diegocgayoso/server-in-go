@@ -9,32 +9,22 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/rocketseat-ama/server/internal/store/pgstore"
-
+	"github.com/diegocgayoso/server-in-go/internal/store/pgstore/pgstore"
+	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5"
 )
 
 type apiHandler struct {
-	// TODO: should be abstracted using an interface
-	q *pgstore.Queries
-	// package for creating HTTP routers
-	r *chi.Mux
-	// upgrades the connection to webscoket
+	q        *pgstore.Queries
+	r        *chi.Mux
 	upgrader websocket.Upgrader
-	// - CancelFunc notifies my handleSubscribe func that server is
-	// cancelling the connection. Server does it by cancelling the
-	// request context (context propagates the information asynchronally)
-	// - maps in go are not thread safe, so will create running
 	// conditions by default
 	subscribers map[string]map[*websocket.Conn]context.CancelFunc
-	// mutex (mutual exclusion) is used to block the accesses,
-	// allowing only one access at a time
-	mu *sync.Mutex
+	mu          *sync.Mutex
 }
 
 func (h apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -106,11 +96,6 @@ func (h apiHandler) notifyClients(msg Message) {
 	}
 }
 
-// - every http request creates a new go routine
-// - if 1000 people are using my application, at
-// least 1000 calls to this endpoint will be done
-// this can lead to runnning conditions
-// and we need to control them
 func (h apiHandler) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 	roomID, err := h.getUUIDParam(r, "room_id")
 	if err != nil {
@@ -141,10 +126,7 @@ func (h apiHandler) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	rawRoomID := roomID.String()
-
-	// blocks the access to the subscribers map
 	h.mu.Lock()
-	// check if roomID exists inside the map
 	if _, ok := h.subscribers[rawRoomID]; !ok {
 		h.subscribers[rawRoomID] = make(map[*websocket.Conn]context.CancelFunc)
 		h.subscribers[rawRoomID][c] = cancel
@@ -153,11 +135,9 @@ func (h apiHandler) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 	slog.Info("new client connected", "room_id", rawRoomID, "client_ip", r.RemoteAddr)
 	h.mu.Unlock()
 
-	// waits until context is cancelled by server or client
 	<-ctx.Done()
 
 	h.mu.Lock()
-	// remove client connection from my pool of connections
 	delete(h.subscribers[rawRoomID], c)
 	h.mu.Unlock()
 }
@@ -426,7 +406,7 @@ func (h apiHandler) handleMarkMessageAsAnswered(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	err = h.q.MarkMessageAsAnswered(r.Context(), messageID)
+	err = h.q.MarkMessageAsAnwsered(r.Context(), messageID)
 	if err != nil {
 		slog.Error("failed to mark message as answered", "error", err)
 		http.Error(w, "something went wrong", http.StatusInternalServerError)
